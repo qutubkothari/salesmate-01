@@ -1,5 +1,10 @@
+const OpenAI = require('openai');
 const { checkCache, storeInCache } = require('./learningCacheService');
-const { openai } = require('../config');
+
+const openai = new OpenAI({
+  apiKey: process.env.OPENAI_API_KEY,
+  project: process.env.OPENAI_PROJECT_ID
+});
 
 /**
  * ENHANCED RESPONSE GENERATOR WITH LEARNING CACHE
@@ -36,9 +41,9 @@ async function generateResponse(query, context, tenantId) {
     const systemPrompt = buildSystemPrompt(context);
     const userPrompt = buildUserPrompt(query, context);
     
-    // Call LLM (DeepSeek primary, OpenAI fallback)
+    // Call OpenAI
     const completion = await openai.chat.completions.create({
-      model: process.env.AI_MODEL_FAST || 'gpt-4o-mini',
+      model: 'gpt-4o-mini',
       messages: [
         { role: 'system', content: systemPrompt },
         { role: 'user', content: userPrompt }
@@ -48,9 +53,8 @@ async function generateResponse(query, context, tenantId) {
     });
     
     const response = completion.choices[0].message.content;
-    const tokens = completion?.usage?.total_tokens || completion?.usage?.totalTokens || 0;
-    // Cost estimate is provider/model-specific; keep best-effort only.
-    const cost = 0;
+    const tokens = completion.usage.total_tokens;
+    const cost = (tokens / 1000000) * 0.60; // gpt-4o-mini pricing
     
     const responseTime = Date.now() - startTime;
     

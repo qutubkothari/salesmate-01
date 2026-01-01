@@ -995,122 +995,21 @@ function ensureSqliteSchema(dbInstance) {
   tryExec(`CREATE INDEX IF NOT EXISTS idx_kb_tenant_updated ON tenant_knowledge_items(tenant_id, updated_at);`);
 }
 
-// ---------- LLM Providers (DeepSeek primary, OpenAI fallback) ----------
-// NOTE: Never hardcode API keys in code. Use environment variables.
-const openaiApiKey = process.env.OPENAI_API_KEY || null;
-const deepseekApiKey = process.env.DEEPSEEK_API_KEY || null;
+// ---------- OpenAI ----------
+const openaiApiKey = process.env.OPENAI_API_KEY;
+if (!openaiApiKey) {
+  throw new Error('OpenAI API Key must be provided in environment variables.');
+}
 
 // If you use sk-proj-* keys, pass the project id/slug
-const openaiProject = process.env.OPENAI_PROJECT || undefined;
-const deepseekBaseURL = process.env.DEEPSEEK_BASE_URL || 'https://api.deepseek.com';
+const openaiProject =
+  process.env.OPENAI_PROJECT || undefined;
 
-const aiProvider = (process.env.AI_PROVIDER || (deepseekApiKey ? 'deepseek' : 'openai')).toLowerCase();
-const aiDisabled = String(process.env.AI_DISABLED || 'false').toLowerCase() === 'true';
-
-if (!aiDisabled && !deepseekApiKey && !openaiApiKey) {
-  throw new Error('No LLM API key configured. Set DEEPSEEK_API_KEY (primary) and/or OPENAI_API_KEY (fallback).');
-}
-
-// Default models when using DeepSeek, unless explicitly overridden.
-if (aiProvider === 'deepseek') {
-  if (!process.env.AI_MODEL_FAST) process.env.AI_MODEL_FAST = 'deepseek-chat';
-  if (!process.env.AI_MODEL_SMART) process.env.AI_MODEL_SMART = 'deepseek-reasoner';
-  if (!process.env.OPENAI_INTENT_MODEL) process.env.OPENAI_INTENT_MODEL = process.env.AI_MODEL_FAST;
-}
-
-let openaiOpenAIClient = null;
-let openaiDeepSeekClient = null;
-
-try {
-  if (openaiApiKey) {
-    openaiOpenAIClient = new OpenAI({
-      apiKey: openaiApiKey,
-      ...(openaiProject ? { project: openaiProject } : {})
-    });
-  }
-} catch (e) {
-  console.error('[CONFIG] OpenAI client init failed:', e?.message || e);
-}
-
-try {
-  if (deepseekApiKey) {
-    // DeepSeek is OpenAI-compatible. The OpenAI SDK supports custom baseURL.
-    openaiDeepSeekClient = new OpenAI({
-      apiKey: deepseekApiKey,
-      baseURL: deepseekBaseURL,
-    });
-  }
-} catch (e) {
-  console.error('[CONFIG] DeepSeek client init failed:', e?.message || e);
-}
-
-function mapModelForDeepSeek(model) {
-  const m = String(model || '').toLowerCase();
-  if (!m) return process.env.AI_MODEL_FAST || 'deepseek-chat';
-
-  // Map common OpenAI model names to DeepSeek equivalents.
-  if (m.includes('gpt-4') || m.includes('o1') || m.includes('reason')) return process.env.AI_MODEL_SMART || 'deepseek-reasoner';
-  if (m.includes('gpt-3.5') || m.includes('mini')) return process.env.AI_MODEL_FAST || 'deepseek-chat';
-  if (m.includes('turbo')) return process.env.AI_MODEL_FAST || 'deepseek-chat';
-
-  // If caller already provided a DeepSeek model, keep it.
-  if (m.startsWith('deepseek-')) return model;
-
-  return process.env.AI_MODEL_FAST || 'deepseek-chat';
-}
-
-async function chatCreateWithFailover(params) {
-  if (aiDisabled) {
-    throw new Error('AI is disabled (AI_DISABLED=true).');
-  }
-
-  const primary = (aiProvider === 'deepseek') ? openaiDeepSeekClient : openaiOpenAIClient;
-  const fallback = (aiProvider === 'deepseek') ? openaiOpenAIClient : openaiDeepSeekClient;
-
-  const primaryParams = (aiProvider === 'deepseek')
-    ? { ...params, model: mapModelForDeepSeek(params?.model) }
-    : params;
-
-  if (primary?.chat?.completions?.create) {
-    try {
-      return await primary.chat.completions.create(primaryParams);
-    } catch (e) {
-      if (!fallback?.chat?.completions?.create) throw e;
-      return await fallback.chat.completions.create(params);
-    }
-  }
-
-  if (fallback?.chat?.completions?.create) {
-    return await fallback.chat.completions.create(params);
-  }
-
-  throw new Error('No chat LLM client available. Set DEEPSEEK_API_KEY and/or OPENAI_API_KEY.');
-}
-
-async function embeddingsCreate(params) {
-  if (aiDisabled) {
-    throw new Error('AI is disabled (AI_DISABLED=true).');
-  }
-
-  // DeepSeek typically does not provide embeddings in the same API.
-  if (openaiOpenAIClient?.embeddings?.create) {
-    return await openaiOpenAIClient.embeddings.create(params);
-  }
-
-  throw new Error('Embeddings require OPENAI_API_KEY (or adjust code to use a local embedding provider).');
-}
-
-// Backwards-compatible export used across the codebase.
-// - chat.completions.create: DeepSeek first (if configured), OpenAI fallback
-// - embeddings.create: OpenAI only
-const openai = {
-  chat: { completions: { create: chatCreateWithFailover } },
-  embeddings: { create: embeddingsCreate },
-};
-
-dbg('AI provider:', aiProvider);
-dbg('DeepSeek:', deepseekApiKey ? 'configured' : 'not set');
-dbg('OpenAI fallback:', openaiApiKey ? 'configured' : 'not set');
+const openai = new OpenAI({
+  apiKey: openaiApiKey,
+  ...(openaiProject ? { project: openaiProject } : {})
+});
+dbg('OpenAI: project', openaiProject ? 'set' : 'not set');
 
 // ---------- Google Cloud Storage ----------
 const storage = new Storage();
@@ -1133,12 +1032,22 @@ module.exports = {
   db,
   USE_LOCAL_DB,
   openai,
-  openaiOpenAIClient,
-  openaiDeepSeekClient,
   bucket,
 };
 
-// NOTE: openaiV2 export removed (it caused confusion and is unnecessary with provider switching).
+// ---- ADD: project-aware OpenAI client (keeps existing exports) ----
+try {
+  const _apiKey = process.env.OPENAI_API_KEY;
+  const _proj   = process.env.OPENAI_PROJECT; // e.g. proj_HXrnhKI5YuehJumAke2sXqiN
+  if (_apiKey && _proj) {
+    const OpenAI = require('openai');
+    const _openaiWithProject = new OpenAI({ apiKey: _apiKey, project: _proj });
+    module.exports.openaiV2 = _openaiWithProject;
+    console.log('[CONFIG] OpenAI (project client) enabled');
+  }
+} catch (e) {
+  console.error('[CONFIG] OpenAI project client init failed:', e?.message || e);
+}
 
 // ADDITIVE: config boot diagnostics (masked)
 try {
