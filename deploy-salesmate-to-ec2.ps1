@@ -102,6 +102,16 @@ USE_LOCAL_DB=true
 # OpenAI Configuration
 OPENAI_API_KEY=YOUR_OPENAI_API_KEY
 
+# DeepSeek Configuration (Primary LLM)
+AI_PROVIDER=deepseek
+DEEPSEEK_API_KEY=YOUR_DEEPSEEK_API_KEY
+DEEPSEEK_BASE_URL=https://api.deepseek.com
+
+# Models (DeepSeek)
+AI_MODEL_FAST=deepseek-chat
+AI_MODEL_SMART=deepseek-reasoner
+OPENAI_INTENT_MODEL=deepseek-chat
+
 # Google Cloud Storage (Local Mode)
 GCS_BUCKET=local-storage
 GOOGLE_CLOUD_PROJECT=local-dev

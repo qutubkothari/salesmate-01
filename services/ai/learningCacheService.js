@@ -1,10 +1,6 @@
 const { supabase } = require('../../config/database');
-const OpenAI = require('openai');
 const crypto = require('crypto');
-
-const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY
-});
+const { openai } = require('../config');
 
 const SIMILARITY_THRESHOLD = 0.85;
 const CACHE_EXPIRY_DAYS = 90;
@@ -122,7 +118,7 @@ async function storeInCache(query, response, customerContext, intent, tokens, co
 async function generateEmbedding(text) {
   try {
     const response = await openai.embeddings.create({
-      model: 'text-embedding-ada-002',
+      model: process.env.EMBEDDING_MODEL || 'text-embedding-3-small',
       input: text.substring(0, 8000)
     });
 

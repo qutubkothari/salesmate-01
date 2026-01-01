@@ -1,4 +1,4 @@
-const OpenAI = require('openai');
+const { openai } = require('../config');
 
 /**
  * Classify customer intent for intelligent routing
@@ -6,20 +6,15 @@ const OpenAI = require('openai');
  */
 class IntentClassifier {
   constructor() {
-    // Handle different environment variable names
-    const apiKey = process.env.OPENAI_API_KEY || 
-                   process.env.OPENAI_API_KEY_OCR ||
-                   null;
-
-    if (!apiKey) {
-      console.warn('⚠️ OpenAI API key not found. Only rule-based classification will work.');
+    if (!openai) {
+      console.warn('⚠️ No LLM client configured. Only rule-based classification will work.');
       this.openai = null;
       this.aiEnabled = false;
     } else {
-      this.openai = new OpenAI({ apiKey });
+      this.openai = openai;
       this.aiEnabled = true;
     }
-    this.model = process.env.AI_MODEL_FAST || 'gpt-4o-mini';
+    this.model = process.env.OPENAI_INTENT_MODEL || process.env.AI_MODEL_FAST || 'gpt-4o-mini';
 
     // Intent categories
     this.intents = {
